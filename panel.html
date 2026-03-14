@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Network AI Exporter</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      background: #181825;
+      border-bottom: 1px solid #313244;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    .toolbar-title { font-weight: 700; font-size: 13px; color: #cba6f7; margin-right: 2px; }
+    .toolbar-sep { width: 1px; height: 18px; background: #313244; margin: 0 2px; }
+
+    .btn {
+      padding: 4px 10px;
+      border: none; border-radius: 5px;
+      cursor: pointer; font-size: 11px; font-weight: 600;
+      transition: opacity 0.15s; white-space: nowrap;
+    }
+    .btn:hover { opacity: 0.82; }
+    .btn:active { opacity: 0.65; }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+
+    .btn-record      { background: #f38ba8; color: #1e1e2e; }
+    .btn-record.recording { background: #a6e3a1; animation: pulse 1.5s infinite; }
+    .btn-clear       { background: #585b70; color: #cdd6f4; }
+    .btn-diff        { background: #f9e2af; color: #1e1e2e; }
+    .btn-localhost   { background: #89dceb; color: #1e1e2e; }
+    .btn-export-har  { background: #89b4fa; color: #1e1e2e; }
+    .btn-export-ai   { background: #cba6f7; color: #1e1e2e; }
+    .btn-summary     { background: #a6e3a1; color: #1e1e2e; }
+    .btn-copy        { background: #fab387; color: #1e1e2e; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.65} }
+
+    .filter-input {
+      padding: 4px 9px; border-radius: 5px;
+      border: 1px solid #313244; background: #313244;
+      color: #cdd6f4; font-size: 11px; width: 160px;
+    }
+    .filter-input:focus { outline: none; border-color: #cba6f7; }
+    .method-filter {
+      padding: 4px 7px; border-radius: 5px;
+      border: 1px solid #313244; background: #313244;
+      color: #cdd6f4; font-size: 11px;
+    }
+    .stats { margin-left: auto; font-size: 11px; color: #585b70; }
+    .diff-hint { font-size: 11px; color: #f9e2af; display: none; }
+
+    /* ── Table ── */
+    .table-container { flex: 1; overflow: auto; min-height: 0; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th {
+      position: sticky; top: 0; background: #181825;
+      padding: 5px 8px; text-align: left;
+      color: #585b70; font-weight: 700;
+      border-bottom: 1px solid #313244;
+      user-select: none; white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #181825; cursor: pointer; transition: background .1s; }
+    tbody tr:hover  { background: #313244; }
+    tbody tr.selected { background: #45475a; }
+    tbody tr.diff-a  { background: #2a2a3e; outline: 1px solid #89b4fa; }
+    tbody tr.diff-b  { background: #2a3a2e; outline: 1px solid #a6e3a1; }
+
+    td { padding: 4px 8px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* checkbox col */
+    td.cb-col, th.cb-col { width: 28px; padding: 4px 6px; }
+    input[type=checkbox] { accent-color: #cba6f7; cursor: pointer; }
+
+    .method-badge {
+      display: inline-block; padding: 1px 5px;
+      border-radius: 3px; font-weight: 700; font-size: 10px;
+    }
+    .method-GET    { background:#a6e3a1; color:#1e1e2e }
+    .method-POST   { background:#89b4fa; color:#1e1e2e }
+    .method-PUT    { background:#fab387; color:#1e1e2e }
+    .method-PATCH  { background:#f9e2af; color:#1e1e2e }
+    .method-DELETE { background:#f38ba8; color:#1e1e2e }
+    .method-OTHER  { background:#585b70; color:#cdd6f4 }
+
+    .status-ok    { color: #a6e3a1 }
+    .status-redir { color: #f9e2af }
+    .status-err   { color: #f38ba8 }
+    .status-pend  { color: #585b70 }
+
+    /* Localhost badge */
+    .lh-badge {
+      display: inline-block; margin-left: 5px;
+      padding: 0 5px; border-radius: 3px;
+      background: #89dceb22; border: 1px solid #89dceb66;
+      color: #89dceb; font-size: 10px; font-weight: 600;
+      max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    /* ── Empty state ── */
+    .empty-state {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 160px; color: #585b70; gap: 6px;
+    }
+    .empty-state .icon { font-size: 28px; }
+
+    /* ── Detail panel ── */
+    .detail-panel {
+      height: 220px; background: #181825;
+      border-top: 1px solid #313244;
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    .detail-tabs { display: flex; border-bottom: 1px solid #313244; }
+    .detail-tab {
+      padding: 5px 13px; cursor: pointer; font-size: 12px;
+      color: #585b70; border-bottom: 2px solid transparent;
+    }
+    .detail-tab.active { color: #cba6f7; border-bottom-color: #cba6f7; }
+    .detail-content { flex: 1; overflow: auto; padding: 10px; }
+
+    pre {
+      font-family: 'JetBrains Mono','Fira Code','Courier New',monospace;
+      font-size: 11px; white-space: pre-wrap; word-break: break-all;
+      color: #cdd6f4; line-height: 1.5;
+    }
+    .key    { color: #89b4fa }
+    .string { color: #a6e3a1 }
+    .number { color: #fab387 }
+
+    /* ── DIFF VIEW ── */
+    .diff-view {
+      display: none;
+      flex-direction: column;
+      background: #181825;
+      border-top: 1px solid #313244;
+      flex-shrink: 0;
+    }
+    .diff-view.visible { display: flex; }
+
+    .diff-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px; border-bottom: 1px solid #313244;
+      font-size: 12px; color: #6c7086;
+    }
+    .diff-header strong { color: #cba6f7; }
+    .diff-close {
+      margin-left: auto; cursor: pointer;
+      color: #585b70; font-size: 16px; line-height: 1;
+    }
+    .diff-close:hover { color: #f38ba8; }
+
+    .diff-cols {
+      display: grid; grid-template-columns: 1fr 1fr;
+      flex: 1; overflow: auto; min-height: 0;
+    }
+    .diff-col { overflow: auto; border-right: 1px solid #313244; }
+    .diff-col:last-child { border-right: none; }
+    .diff-col-header {
+      position: sticky; top: 0; background: #1e1e2e;
+      padding: 4px 10px; font-size: 11px;
+      border-bottom: 1px solid #313244;
+    }
+    .diff-col-a .diff-col-header { color: #89b4fa; }
+    .diff-col-b .diff-col-header { color: #a6e3a1; }
+
+    .diff-line {
+      display: flex; font-family: 'JetBrains Mono','Courier New',monospace;
+      font-size: 11px; line-height: 1.6; padding: 0 10px;
+    }
+    .diff-line.added    { background: #1c3a1c; color: #a6e3a1; }
+    .diff-line.removed  { background: #3a1c1c; color: #f38ba8; }
+    .diff-line.changed  { background: #3a3a1c; color: #f9e2af; }
+    .diff-line.same     { color: #585b70; }
+    .diff-line-num { min-width: 28px; color: #45475a; user-select: none; }
+    .diff-line-sig { min-width: 14px; }
+    .diff-line.added  .diff-line-sig::before { content: '+'; color: #a6e3a1; }
+    .diff-line.removed .diff-line-sig::before { content: '−'; color: #f38ba8; }
+    .diff-line.changed .diff-line-sig::before { content: '~'; color: #f9e2af; }
+    .diff-line.same   .diff-line-sig::before { content: ' '; }
+
+    .diff-summary-bar {
+      padding: 4px 12px; font-size: 11px;
+      border-bottom: 1px solid #313244;
+      display: flex; gap: 16px;
+    }
+    .ds-added   { color: #a6e3a1 }
+    .ds-removed { color: #f38ba8 }
+    .ds-changed { color: #f9e2af }
+    .ds-same    { color: #585b70 }
+
+    /* ── LOCALHOST MODAL ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: #00000088; z-index: 200;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #1e1e2e; border: 1px solid #313244;
+      border-radius: 10px; width: 480px; max-height: 80vh;
+      display: flex; flex-direction: column;
+      box-shadow: 0 8px 32px #00000088;
+    }
+    .modal-header {
+      display: flex; align-items: center;
+      padding: 12px 16px; border-bottom: 1px solid #313244;
+    }
+    .modal-title { font-weight: 700; color: #89dceb; font-size: 14px; }
+    .modal-close {
+      margin-left: auto; cursor: pointer; color: #585b70;
+      font-size: 18px; line-height: 1;
+    }
+    .modal-close:hover { color: #f38ba8; }
+    .modal-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+    .modal-footer { padding: 10px 16px; border-top: 1px solid #313244; }
+
+    .lh-add-row {
+      display: flex; gap: 8px; margin-bottom: 14px;
+    }
+    .lh-input {
+      flex: 1; padding: 6px 10px; border-radius: 5px;
+      border: 1px solid #313244; background: #313244;
+      color: #cdd6f4; font-size: 12px;
+    }
+    .lh-input:focus { outline: none; border-color: #89dceb; }
+    .lh-input::placeholder { color: #585b70; }
+
+    .lh-list { display: flex; flex-direction: column; gap: 6px; }
+    .lh-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 6px;
+      background: #313244; border: 1px solid #45475a;
+    }
+    .lh-item-port { font-family: monospace; color: #89dceb; font-size: 12px; min-width: 100px; }
+    .lh-item-label { flex: 1; color: #cdd6f4; font-size: 12px; }
+    .lh-item-count { font-size: 11px; color: #585b70; min-width: 50px; text-align: right; }
+    .lh-item-del {
+      cursor: pointer; color: #585b70; font-size: 14px;
+    }
+    .lh-item-del:hover { color: #f38ba8; }
+    .lh-detected {
+      margin-top: 14px; padding-top: 12px;
+      border-top: 1px solid #313244;
+    }
+    .lh-detected-title { font-size: 11px; color: #585b70; margin-bottom: 8px; }
+    .lh-detected-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 0; font-size: 12px;
+    }
+    .lh-detected-port { font-family: monospace; color: #89dceb; min-width: 100px; }
+    .lh-detected-count { color: #585b70; flex: 1; }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 16px; right: 16px;
+      background: #313244; color: #cdd6f4;
+      padding: 8px 14px; border-radius: 7px; font-size: 12px;
+      border-left: 3px solid #a6e3a1;
+      display: none; z-index: 300; animation: slideIn .2s ease;
+    }
+    @keyframes slideIn { from{transform:translateX(16px);opacity:0} to{transform:translateX(0);opacity:1} }
+  </style>
+</head>
+<body>
+
+  <!-- ── Toolbar ── -->
+  <div class="toolbar">
+    <span class="toolbar-title">⚡ Network AI</span>
+    <button class="btn btn-record"    id="btnRecord">● Record</button>
+    <button class="btn btn-clear"     id="btnClear">✕ Clear</button>
+    <div class="toolbar-sep"></div>
+    <button class="btn btn-diff"      id="btnDiff" disabled title="Select exactly 2 requests to diff">⇄ Diff</button>
+    <button class="btn btn-localhost" id="btnLocalhost">🔌 Localhost</button>
+    <div class="toolbar-sep"></div>
+    <input  class="filter-input"      id="filterInput" placeholder="Filter by URL…" />
+    <select class="method-filter"     id="methodFilter">
+      <option value="">All Methods</option>
+      <option value="GET">GET</option><option value="POST">POST</option>
+      <option value="PUT">PUT</option><option value="PATCH">PATCH</option>
+      <option value="DELETE">DELETE</option>
+    </select>
+    <select class="method-filter"     id="statusFilter">
+      <option value="">All Status</option>
+      <option value="2">2xx</option><option value="3">3xx</option>
+      <option value="4">4xx</option><option value="5">5xx</option>
+    </select>
+    <div class="toolbar-sep"></div>
+    <button class="btn btn-export-har" id="btnExportHar">⬇ HAR</button>
+    <button class="btn btn-export-ai"  id="btnExportAi">🤖 AI Export</button>
+    <button class="btn btn-summary"    id="btnSummary">📋 Summary</button>
+    <button class="btn btn-copy"       id="btnCopy">📋 Copy Prompt</button>
+    <span class="diff-hint" id="diffHint">✓ Select 2 rows to enable Diff</span>
+    <span class="stats" id="stats">0 requests</span>
+  </div>
+
+  <!-- ── Request Table ── -->
+  <div class="table-container" id="tableContainer">
+    <table id="reqTable">
+      <thead>
+        <tr>
+          <th class="cb-col"><input type="checkbox" id="cbAll" title="Select all"></th>
+          <th>#</th><th>Method</th><th>Status</th>
+          <th>URL</th><th>Type</th><th>Size</th><th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="reqBody"></tbody>
+    </table>
+    <div class="empty-state" id="emptyState">
+      <span class="icon">🌐</span>
+      <span>Click <strong>Record</strong> to start capturing</span>
+      <span style="font-size:11px">or open a page — existing requests load automatically</span>
+    </div>
+  </div>
+
+  <!-- ── Diff View ── -->
+  <div class="diff-view" id="diffView">
+    <div class="diff-header">
+      <strong>⇄ Response Diff</strong>
+      <span id="diffLabel" style="color:#cdd6f4"></span>
+      <span class="diff-close" id="diffClose">✕</span>
+    </div>
+    <div class="diff-summary-bar" id="diffSummaryBar"></div>
+    <div class="diff-cols" id="diffCols"></div>
+  </div>
+
+  <!-- ── Detail Panel ── -->
+  <div class="detail-panel" id="detailPanel" style="display:none">
+    <div class="detail-tabs">
+      <div class="detail-tab active" data-tab="request">Request</div>
+      <div class="detail-tab" data-tab="response">Response</div>
+      <div class="detail-tab" data-tab="headers">Headers</div>
+      <div class="detail-tab" data-tab="ai">AI Format</div>
+    </div>
+    <div class="detail-content" id="detailContent"></div>
+  </div>
+
+  <!-- ── Localhost Memory Modal ── -->
+  <div class="modal-overlay" id="lhModal">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">🔌 Localhost Memory</span>
+        <span class="modal-close" id="lhClose">✕</span>
+      </div>
+      <div class="modal-body">
+        <div class="lh-add-row">
+          <input class="lh-input" id="lhPort"  placeholder="Port (e.g. 3000)" style="max-width:110px" />
+          <input class="lh-input" id="lhLabel" placeholder="Label (e.g. React – ProjectX frontend)" />
+          <button class="btn btn-localhost" id="lhAdd">+ Add</button>
+        </div>
+        <div class="lh-list" id="lhList"></div>
+        <div class="lh-detected" id="lhDetected" style="display:none">
+          <div class="lh-detected-title">DETECTED IN THIS SESSION (not yet labelled)</div>
+          <div id="lhDetectedList"></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="font-size:11px;color:#585b70">
+        Labels are saved locally and shown next to every localhost URL in the table.
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="panel.js"></script>
+</body>
+</html>
